@@ -1,0 +1,127 @@
+# DRAFT, NOT YET VALIDATED. Written 2026-11-06 from docs/TEMPLATES.md ("The room block": roles, references,
+# docs) in github.com/sandbox-quantum/switch. Load it in Switch Console, fix whatever the form complains about.
+# NO kickoff on purpose: kickoffs make each agent run a turn, and the Console times out while the server keeps
+# going (that created duplicate rooms last time). Post the first message by hand.
+#
+# Whylog: one room, three agents.
+#   {team}-coder   a coding agent working in the demo repo; the engineer talks to it in the room.
+#   {team}-scribe  holds the exclusive `scribe` role: captures decisions, writes decision records, interviews leavers.
+#   {team}-recall  answers "why did we do X" ONLY from the room's decision records and the GitHub reference.
+# All people, PRs and decisions in the demo are made up and labelled so.
+version: 1
+
+params:
+  team:
+    type: string
+    description: Prefix for every name this creates
+    pattern: "[a-z][a-z0-9-]*"
+  directory:
+    type: directory
+    description: Each agent's working directory, a folder of its own.
+    default: "{$agents_dir}/{agent}"
+    input: advanced
+  bridge:
+    type: bridge
+    description: Where the room is mirrored. The server's default app is chosen.
+    default: [$first]
+  repo_url:
+    type: string
+    description: URL of the public demo repository on GitHub
+  newhire_user:
+    type: string
+    description: Messaging-app username of the new hire (a second account)
+
+agents:
+  - name: "{team}-coder"
+    description: Coding agent for the demo repo; its working conversation is the raw material
+    addressing: anyone
+    provider: claude
+    location: local
+    directory: "{directory}"
+    instructions: |
+      You are a coding agent working with one engineer in a shared room. Work on the demo
+      repository the room points at. When a choice has to be made (a library, a retry
+      strategy, a data shape), say the options out loud in the room with their trade-offs
+      before you pick one, and say which you would pick and why. Do not make the choice
+      silently. After a change, post the PR link in the room. Keep replies short.
+
+  - name: "{team}-scribe"
+    description: Captures the reasoning behind engineering decisions as they are made
+    addressing: anyone
+    provider: claude
+    location: local
+    directory: "{directory}"
+    instructions: |
+      You are the scribe of this engineering room. Take the `scribe` role. Your job is to
+      keep the reason behind each decision, not the decision alone.
+
+      Capturing: when people (or the coding agent) in this room settle on a choice, ask for
+      whatever is missing, one short question at a time: what was chosen, which options were
+      rejected and why, who decided, what would make us revisit it. Only record what a person
+      in the room actually said. If a part was not said, write "not stated", never fill it in.
+      Then create or update a room document named DR-<number> <short title> that follows the
+      room's "How we record decisions" document, and link the PR or issue the choice relates
+      to. Post the document name in the room.
+
+      Offboarding: when someone is leaving, list the decisions they own, find the records with
+      "not stated" parts, and interview them about those, in the room. Update the records with
+      their answers and mark who said it.
+
+      Never invent a reason. You do not answer "why" questions yourself; point to the recall agent.
+
+  - name: "{team}-recall"
+    description: Answers why-questions from recorded decisions only, and says when nothing was recorded
+    addressing: anyone
+    provider: claude
+    location: local
+    directory: "{directory}"
+    instructions: |
+      You answer questions about why something was done, for example from a new hire. Take
+      the `recall` role. Use only two sources: the room's decision documents (DR-...) and the
+      GitHub reference this room points at. Quote the record, name who said it, and link the PR.
+
+      If no record covers the question, say plainly: "This was not recorded." Then say what the
+      nearest records are, and who is listed as having decided something related. Never
+      guess, never reconstruct a reason from the code alone, and never present your own
+      inference as the team's reason. If a record says "not stated" for a part, say so.
+
+room:
+  name: "{team}-engineering"
+  description: Engineers, a coding agent, a scribe and a recall agent, with the reasoning kept
+  bridge: "{bridge}"
+  channel_type: channel_private
+  agents: ["{team}-coder", "{team}-scribe", "{team}-recall"]
+  users: ["{$creator}", "{newhire_user}"]
+  instructions: |
+    This room is where the team decides things and where the reasons are kept. Talk to the
+    coding agent here. The scribe records decisions as documents named DR-<number>. Anyone,
+    including people who joined later, can ask the recall agent why something was done.
+    Reply in the thread where you were asked. Keep it short. Say plainly when something is
+    not known. All people and decisions in this demo are made up.
+  roles:
+    - name: scribe
+      instructions: Capture decisions with their reasons, write DR documents, interview leavers. Never invent a reason.
+      exclusive: true
+    - name: recall
+      instructions: Answer why-questions only from DR documents and the GitHub reference. Say "not recorded" when nothing covers it.
+      exclusive: true
+  references:
+    - type: github
+      name: demo repository
+      description: The demo repository the team works on. PRs here are what decision records link to.
+      instructions: Use it to find the PR or issue a decision relates to and to link it. It describes what shipped, not why it was chosen.
+      value:
+        urls: ["{repo_url}"]
+  docs:
+    - name: How we record decisions
+      description: The format every decision record follows
+      instructions: Follow this format for every DR document. Mark any part nobody stated as "not stated".
+      content: |
+        Title: DR-<number> <short title>
+        Decision: what was chosen, one line.
+        Options rejected: each option and why it lost.
+        Why: the reasons, in the words of the person who gave them.
+        Decided by: who said so, and when.
+        Revisit if: what would change this.
+        Links: the PR or issue.
+        Gaps: anything not stated.
